@@ -1,4 +1,4 @@
-import { envsafe, str, bool } from "envsafe";
+import { envsafe, str, bool, port } from "envsafe";
 
 export const env = envsafe({
   AWS_ACCESS_KEY_ID: str(),
@@ -51,5 +51,15 @@ export const env = envsafe({
     desc: 'Any valid pg_dump option.',
     default: '',
     allowEmpty: true,
+  }),
+  // Habitcraft (1 Nov 2026): the "back up now" button on the private network (src/trigger.ts).
+  BACKUP_TRIGGER_SECRET: str({
+    desc: 'Shared secret for POST /backup; 24+ characters. Empty keeps the button off.',
+    default: '',
+    allowEmpty: true,
+  }),
+  TRIGGER_PORT: port({
+    desc: 'Port for the backup button (private network only).',
+    default: 8080,
   }),
 })
