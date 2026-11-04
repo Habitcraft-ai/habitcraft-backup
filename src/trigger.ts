@@ -13,14 +13,22 @@ import { timingSafeEqual } from "crypto";
 
 export const MIN_GAP_MS = 30 * 60 * 1000;
 
-export type LastRun = { started_at: string; finished_at: string | null; ok: boolean | null; error: string | null; by: "cron" | "startup" | "request" };
+export type LastRun = { started_at: string; finished_at: string | null; ok: boolean | null; error: string | null; by: "cron" | "startup" | "request"; files?: object | null };
+
+/** What GET /backup says about the running code (4 Nov 2026), so Habitcraft can tell which version made a backup
+ * without anyone opening Railway. RAILWAY_GIT_COMMIT_SHA is set by Railway on deploys from GitHub. */
+export const FEATURES = ["button", "google-split"];
+export function version(env: NodeJS.ProcessEnv = process.env) {
+  const sha = String(env.RAILWAY_GIT_COMMIT_SHA || "");
+  return { commit: /^[0-9a-f]{7,40}$/.test(sha) ? sha : null, features: FEATURES };
+}
 
 /** One backup at a time, whoever asks (the cron, startup, or the button). */
 export class Runner {
   running = false;
   last: LastRun | null = null;
   lastRequestedAt = 0;
-  constructor(private backup: () => Promise<void>, private now: () => number = Date.now) {}
+  constructor(private backup: () => Promise<unknown>, private now: () => number = Date.now) {}
 
   /** Runs a backup now; resolves when it ends. Returns false (and does nothing) if one is already running. */
   async run(by: LastRun["by"]): Promise<boolean> {
@@ -29,7 +37,8 @@ export class Runner {
     const run: LastRun = { started_at: new Date(this.now()).toISOString(), finished_at: null, ok: null, error: null, by };
     this.last = run;
     try {
-      await this.backup();
+      const out = await this.backup();
+      if (out && typeof out === "object") run.files = out;
       run.ok = true;
     } catch (e: any) {
       run.ok = false;
@@ -66,7 +75,7 @@ export function handler(runner: Runner, secret: string) {
     if (path !== "/backup") return send(404, { error: "not found" });
     const auth = String(req.headers["authorization"] || "");
     if (!secretMatches(auth.startsWith("Bearer ") ? auth.slice(7) : "", secret)) return send(401, { error: "wrong or missing secret" });
-    if (req.method === "GET") return send(200, { running: runner.running, last: runner.last });
+    if (req.method === "GET") return send(200, { running: runner.running, last: runner.last, version: version() });
     if (req.method === "POST") { const r = runner.request(); return send(r.status, r.body); }
     return send(405, { error: "GET or POST only" });
   };

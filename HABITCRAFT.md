@@ -10,6 +10,9 @@ Before Habitcraft changes its own Directus, it takes a database backup. Railway 
 
 - `POST /backup`: start a backup now. At most one every 30 minutes, never two at once (the nightly one included).
 - `GET /backup`: whether one is running, and how the last one went (`started_at`, `finished_at`, `ok`, `error`, `by`).
+  Since 4 Nov 2026 also `last.files` (the file names it made, and how many Google backups were kept and deleted) and
+  `version` (`commit`: the deployed commit from Railway's `RAILWAY_GIT_COMMIT_SHA`; `features`), so Habitcraft can see
+  which code made a backup without opening Railway.
 
 Both need `Authorization: Bearer <BACKUP_TRIGGER_SECRET>`. Nothing else is exposed. **Give this service no public domain.**
 

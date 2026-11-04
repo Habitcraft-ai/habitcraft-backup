@@ -1,7 +1,7 @@
 // Habitcraft's backup button (src/trigger.ts). Run after `npm run build`: node --test test/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Runner, handler, startTrigger, secretMatches, MIN_GAP_MS } from "../dist/trigger.js";
+import { Runner, handler, startTrigger, secretMatches, MIN_GAP_MS, version } from "../dist/trigger.js";
 
 const SECRET = "s".repeat(32);
 const tick = () => new Promise((r) => setImmediate(r));
@@ -63,4 +63,17 @@ test("no secret (or a short one) means no port is opened", () => {
   assert.equal(startTrigger(new Runner(async () => {}), "", 0), null);
   assert.equal(startTrigger(new Runner(async () => {}), "short", 0), null);
   console.log = log;
+});
+
+test("GET says which code is running, and a run's files are kept on last (4 Nov 2026)", async () => {
+  assert.deepEqual(version({ RAILWAY_GIT_COMMIT_SHA: "a".repeat(40) }), { commit: "a".repeat(40), features: ["button", "google-split"] });
+  assert.equal(version({}).commit, null);
+  assert.equal(version({ RAILWAY_GIT_COMMIT_SHA: "not a sha; rm" }).commit, null);
+  const runner = new Runner(async () => ({ full: "backup-t.tar.gz", google: "google-t.tar.gz", google_kept: 1, google_deleted: 0 }));
+  await runner.run("request");
+  const st = await call(handler(runner, SECRET), "GET", `Bearer ${SECRET}`);
+  assert.equal(st.body.last.files.google, "google-t.tar.gz");
+  assert.deepEqual(st.body.version.features, ["button", "google-split"]);
+  const plain = new Runner(async () => undefined); await plain.run("cron");
+  assert.equal(plain.last.files, undefined);
 });
