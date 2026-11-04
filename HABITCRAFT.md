@@ -22,6 +22,25 @@ Both need `Authorization: Bearer <BACKUP_TRIGGER_SECRET>`. Nothing else is expos
 
 Directus's `habitcraft-guards` extension calls it (`POST /habitcraft/backup`, admins only).
 
+## Google data in its own backup (src/google.ts, 3 Nov 2026)
+
+Habitcraft's privacy policy promises that data from a person's Gmail or Google Calendar leaves backups within 30 days of
+a deletion request, while full backups are kept longer. So each run makes two files:
+
+- `backup-<time>.tar.gz`: the whole database except the rows of the Google tables (`--exclude-table-data`; the tables'
+  structure is still there). Kept as before.
+- `google-<time>.tar.gz`: only the Google tables. After each run, `google-` files older than `GOOGLE_RETENTION_DAYS` are
+  deleted from the bucket. Nothing else is ever deleted.
+
+| Variable | Default | What |
+|---|---|---|
+| `GOOGLE_TABLES` | `public.email_extracts` | The tables holding Google user data, `schema.table`, comma-separated |
+| `GOOGLE_RETENTION_DAYS` | `28` | Days a Google backup is kept |
+
+Restoring: restore the full file, then the newest Google file (`pg_restore --data-only`) if the Google rows are wanted.
+Then apply the deletions Habitcraft logged since that backup (`service_events` kind `google_purge`) before anyone uses
+the restored data.
+
 One other change: a failed backup no longer exits the process. It is logged, shown by `GET /backup`, and the service
 stays up for the next run.
 
@@ -33,5 +52,6 @@ npm ci && npm test
 
 ## Keeping up with the template
 
-"Sync fork" on GitHub pulls in Railway's changes. The only files Habitcraft changed are `src/index.ts`, `src/env.ts`,
-`package.json` (the test script) and the new `src/trigger.ts`, `test/trigger.test.mjs` and this file.
+"Sync fork" on GitHub pulls in Railway's changes. The only files Habitcraft changed are `src/index.ts`, `src/env.ts`, `src/backup.ts`,
+`package.json` (the test script) and the new `src/trigger.ts`, `src/google.ts`, `test/trigger.test.mjs`,
+`test/google.test.mjs` and this file.

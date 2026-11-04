@@ -1,4 +1,4 @@
-import { envsafe, str, bool, port } from "envsafe";
+import { envsafe, str, bool, port, num } from "envsafe";
 
 export const env = envsafe({
   AWS_ACCESS_KEY_ID: str(),
@@ -61,5 +61,15 @@ export const env = envsafe({
   TRIGGER_PORT: port({
     desc: 'Port for the backup button (private network only).',
     default: 8080,
+  }),
+  // Habitcraft (3 Nov 2026): Google data in its own backup, deleted after GOOGLE_RETENTION_DAYS (src/google.ts).
+  GOOGLE_TABLES: str({
+    desc: 'Comma-separated schema.table names holding Google user data; their rows are left out of the full backup.',
+    default: 'public.email_extracts',
+    allowEmpty: true,
+  }),
+  GOOGLE_RETENTION_DAYS: num({
+    desc: 'Days a Google-data backup is kept before it is deleted.',
+    default: 28,
   }),
 })
