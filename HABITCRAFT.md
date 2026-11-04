@@ -33,7 +33,12 @@ a deletion request, while full backups are kept longer. So each run makes two fi
 - `backup-<time>.tar.gz`: the whole database except the rows of the Google tables (`--exclude-table-data`; the tables'
   structure is still there). Kept as before.
 - `google-<time>.tar.gz`: only the Google tables. After each run, `google-` files older than `GOOGLE_RETENTION_DAYS` are
-  deleted from the bucket. Nothing else is ever deleted.
+  deleted from the bucket. Nothing else is ever deleted, apart from the delete check below.
+
+Every run also proves the bucket key can delete (4 Nov 2026): it writes `delete-check.txt` in the backup folder, deletes
+it and checks it's gone. `GET /backup` shows the result as `last.files.delete_check` (`ok`, or what failed) and the age
+of the oldest Google backup as `last.files.google_oldest_days`. Habitcraft's daily guard probe reads both (guard
+`google-backups-expire`), so a key that can't delete, or a Google backup kept too long, shows as broken the next morning.
 
 | Variable | Default | What |
 |---|---|---|

@@ -1,7 +1,7 @@
 // Habitcraft: the Google-data backup (src/google.ts). Run after `npm run build`: node --test test/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { googleTables, dumpFlags, toPrune, DAY_MS } from "../dist/google.js";
+import { googleTables, dumpFlags, toPrune, DAY_MS, oldestDays, deleteCheckKey } from "../dist/google.js";
 
 test("the Google tables are checked and turned into pg_dump flags", () => {
   assert.deepEqual(googleTables("public.email_extracts"), ["public.email_extracts"]);
@@ -29,4 +29,13 @@ test("only Google backups older than the retention period are chosen for deletio
   assert.deepEqual(toPrune(objects, now, 28, "db_backup"), ["db_backup/google-old.tar.gz"]);
   assert.deepEqual(toPrune([{ Key: "google-a.tar.gz", LastModified: ago(30) }], now, 28, ""), ["google-a.tar.gz"]);
   assert.throws(() => toPrune([], now, 0, ""));
+});
+
+test("the oldest Google backup's age, and the delete-check file never looks like a backup (4 Nov 2026)", () => {
+  const now = Date.parse("2026-12-31T00:00:00Z"), ago = (d) => new Date(now - d * DAY_MS);
+  assert.equal(oldestDays([{ Key: "db_backup/google-a.tar.gz", LastModified: ago(3.04) }, { Key: "db_backup/google-b.tar.gz", LastModified: ago(1) }, { Key: "db_backup/backup-c.tar.gz", LastModified: ago(90) }], now, "db_backup"), 3);
+  assert.equal(oldestDays([], now, "db_backup"), null);
+  assert.equal(deleteCheckKey("db_backup"), "db_backup/delete-check.txt");
+  assert.equal(deleteCheckKey(""), "delete-check.txt");
+  assert.deepEqual(toPrune([{ Key: deleteCheckKey("db_backup"), LastModified: ago(400) }], now, 28, "db_backup"), []);
 });
