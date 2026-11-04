@@ -37,3 +37,14 @@ export function toPrune(objects: Stored[], now: number, days: number, folder: st
     .filter((o) => now - new Date(o.LastModified as Date).getTime() > days * DAY_MS)
     .map((o) => o.Key as string);
 }
+
+/** Age in days (one decimal) of the oldest stored Google backup, or null when there are none. Same keys toPrune looks at. */
+export function oldestDays(objects: Stored[], now: number, folder: string): number | null {
+  const prefix = (folder ? folder + "/" : "") + "google-";
+  const ages = objects.filter((o) => typeof o.Key === "string" && o.Key.startsWith(prefix) && o.Key.endsWith(".tar.gz") && o.LastModified != null)
+    .map((o) => (now - new Date(o.LastModified as Date).getTime()) / DAY_MS);
+  return ages.length ? Math.round(Math.max(...ages) * 10) / 10 : null;
+}
+
+/** The key of the small file each run writes and deletes again, to prove the bucket key can delete (4 Nov 2026). */
+export const deleteCheckKey = (folder: string) => (folder ? folder + "/" : "") + "delete-check.txt";
