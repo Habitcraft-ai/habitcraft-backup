@@ -1,5 +1,5 @@
 import { exec, execSync } from "child_process";
-import { S3Client, S3ClientConfig, PutObjectCommandInput } from "@aws-sdk/client-s3";
+import { S3Client, S3ClientConfig, PutObjectCommandInput, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { createReadStream, unlink, statSync } from "fs";
 import { filesize } from "filesize";
@@ -8,12 +8,9 @@ import os from "os";
 
 import { env } from "./env.js";
 import { createMD5 } from "./util.js";
+import { dumpFlags, googleTables, toPrune, type Stored } from "./google.js";
 
-const uploadToS3 = async ({ name, path }: { name: string, path: string }) => {
-  console.log("Uploading backup to S3...");
-
-  const bucket = env.AWS_S3_BUCKET;
-
+const s3 = () => {
   const clientOptions: S3ClientConfig = {
     region: env.AWS_S3_REGION,
     forcePathStyle: env.AWS_S3_FORCE_PATH_STYLE
@@ -24,6 +21,13 @@ const uploadToS3 = async ({ name, path }: { name: string, path: string }) => {
 
     clientOptions.endpoint = env.AWS_S3_ENDPOINT;
   }
+  return new S3Client(clientOptions);
+}
+
+const uploadToS3 = async ({ name, path }: { name: string, path: string }) => {
+  console.log("Uploading backup to S3...");
+
+  const bucket = env.AWS_S3_BUCKET;
 
   if (env.BUCKET_SUBFOLDER) {
     name = env.BUCKET_SUBFOLDER + "/" + name;
@@ -45,7 +49,7 @@ const uploadToS3 = async ({ name, path }: { name: string, path: string }) => {
     params.ContentMD5 = Buffer.from(md5Hash, 'hex').toString('base64');
   }
 
-  const client = new S3Client(clientOptions);
+  const client = s3();
 
   await new Upload({
     client,
@@ -55,11 +59,11 @@ const uploadToS3 = async ({ name, path }: { name: string, path: string }) => {
   console.log("Backup uploaded to S3...");
 }
 
-const dumpToFile = async (filePath: string) => {
+const dumpToFile = async (filePath: string, flags = "") => {
   console.log("Dumping DB to file...");
 
   await new Promise((resolve, reject) => {
-    exec(`pg_dump --dbname=${env.BACKUP_DATABASE_URL} --format=tar ${env.BACKUP_OPTIONS} | gzip > ${filePath}`, (error, stdout, stderr) => {
+    exec(`pg_dump --dbname=${env.BACKUP_DATABASE_URL} --format=tar ${env.BACKUP_OPTIONS} ${flags} | gzip > ${filePath}`, (error, stdout, stderr) => {
       if (error) {
         reject({ error: error, stderr: stderr.trimEnd() });
         return;
@@ -103,17 +107,44 @@ const deleteFile = async (path: string) => {
   });
 }
 
+/** Habitcraft: deletes the Google-data backups older than GOOGLE_RETENTION_DAYS (src/google.ts). */
+const pruneGoogle = async () => {
+  const client = s3(), folder = env.BUCKET_SUBFOLDER;
+  const objects: Stored[] = [];
+  let token: string | undefined;
+  do {
+    const page = await client.send(new ListObjectsV2Command({ Bucket: env.AWS_S3_BUCKET, Prefix: (folder ? folder + "/" : "") + "google-", ContinuationToken: token }));
+    objects.push(...(page.Contents || []));
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  const old = toPrune(objects, Date.now(), env.GOOGLE_RETENTION_DAYS, folder);
+  for (const Key of old) await client.send(new DeleteObjectCommand({ Bucket: env.AWS_S3_BUCKET, Key }));
+  console.log(`Google-data backups: ${objects.length} stored, ${old.length} older than ${env.GOOGLE_RETENTION_DAYS} days deleted`);
+}
+
 export const backup = async () => {
   console.log("Initiating DB backup...");
 
   const date = new Date().toISOString();
   const timestamp = date.replace(/[:.]+/g, '-');
+  const tables = googleTables(env.GOOGLE_TABLES);
+  const flags = dumpFlags(tables);
   const filename = `${env.BACKUP_FILE_PREFIX}-${timestamp}.tar.gz`;
   const filepath = path.join(os.tmpdir(), filename);
 
-  await dumpToFile(filepath);
+  // the full backup, without the Google tables' rows (Habitcraft, 3 Nov 2026)
+  await dumpToFile(filepath, flags.full);
   await uploadToS3({ name: filename, path: filepath });
   await deleteFile(filepath);
+
+  if (tables.length) {
+    // the Google tables on their own, kept GOOGLE_RETENTION_DAYS, then deleted
+    const gname = `google-${timestamp}.tar.gz`, gpath = path.join(os.tmpdir(), gname);
+    await dumpToFile(gpath, flags.google);
+    await uploadToS3({ name: gname, path: gpath });
+    await deleteFile(gpath);
+    await pruneGoogle();
+  }
 
   console.log("DB backup complete...");
 }
