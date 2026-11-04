@@ -120,8 +120,10 @@ const pruneGoogle = async () => {
   const old = toPrune(objects, Date.now(), env.GOOGLE_RETENTION_DAYS, folder);
   for (const Key of old) await client.send(new DeleteObjectCommand({ Bucket: env.AWS_S3_BUCKET, Key }));
   console.log(`Google-data backups: ${objects.length} stored, ${old.length} older than ${env.GOOGLE_RETENTION_DAYS} days deleted`);
+  return { stored: objects.length, deleted: old.length };
 }
 
+/** Runs one backup. Returns what it made (file names only), which GET /backup shows as last.files. */
 export const backup = async () => {
   console.log("Initiating DB backup...");
 
@@ -137,14 +139,19 @@ export const backup = async () => {
   await uploadToS3({ name: filename, path: filepath });
   await deleteFile(filepath);
 
+  const made: { full: string; google: string | null; google_tables: string[]; google_kept: number | null; google_deleted: number | null } = { full: filename, google: null, google_tables: tables, google_kept: null, google_deleted: null };
   if (tables.length) {
     // the Google tables on their own, kept GOOGLE_RETENTION_DAYS, then deleted
     const gname = `google-${timestamp}.tar.gz`, gpath = path.join(os.tmpdir(), gname);
     await dumpToFile(gpath, flags.google);
     await uploadToS3({ name: gname, path: gpath });
     await deleteFile(gpath);
-    await pruneGoogle();
+    made.google = gname;
+    const pruned = await pruneGoogle();
+    made.google_kept = pruned.stored - pruned.deleted;
+    made.google_deleted = pruned.deleted;
   }
 
   console.log("DB backup complete...");
+  return made;
 }
